@@ -1,0 +1,86 @@
+# elm-package generated files
+elm-stuff
+# elm-repl generated files
+repl-temp-*
+
+# General .NET files
+bin/
+obj/
+
+# Rider project files
+.idea/
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Auto-generated files
+Generated\ Files/
+
+# VS Code specific files
+.vscode/
+.history/ # If you have the "Local History" extension installed
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# macOS specific files
+.DS_Store
+
+# Log files
+*.log
+
+# dotnet publish files
+**/publish/
+**/published/
+
+# .NET Core specific files
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# NuGet Packages
+*.nupkg
+*.snupkg
+
+# .NET Core Assembly Binding Log
+binding-redirects.json
+
+# .NET Core Razor Template files
+**/bin/
+**/obj/
+
+# Packages directory can be ignored if NuGet restore is used
+packages/
+*.nupkg
+*.snupkg
+
+# Windows image file caches
+Thumbs.db
+
+# Windows Installer files
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Web files
+# Uncomment if publishing Web Applications
+# wwwroot/
+
+# Optional: IDE-specific settings
+.idea/
+*.code-workspace
+.vscode/
+
+*.dat
