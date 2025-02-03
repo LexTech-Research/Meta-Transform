@@ -3,6 +3,8 @@ using Terminal.Gui;
 using System.Data;
 using NStack;
 using System.CommandLine.NamingConventionBinder;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 // Meeting Location pattern: Location\s+:\s(.+?)®
 
@@ -21,6 +23,8 @@ public abstract class Process
         get => preview ??= new DataTable();
         set => preview = value;
     }
+
+    public int PreviousStepIndex { get; set; }
 
     public required string Title { get; set; }
 
@@ -53,6 +57,25 @@ public class ImportProcess : Process
         }
 
         this.Preview = ConcordanceFileReader.Read(this.File);
+    }
+}
+
+/// <summary>
+/// TODO: Add Documentation
+/// </summary>
+public class ExportProcess : Process
+{
+    public string File { get; set; }
+
+    public override void Execute(DataTable? input = null)
+    {
+        if (System.IO.File.Exists(this.File) || input == null)
+        {
+            return;    
+        }
+
+        this.Preview = input.Copy();
+        ConcordanceFileWriter.Write(this.Preview, this.File);
     }
 }
 
@@ -159,6 +182,7 @@ public enum Msg
     AddExtractionProcess,
     AddDeletionProcess,
     AddColumnProcess,
+    AddExportProcess,
     SelectStep,
     UpdatePreview,
     UpdateProcessTitle,
@@ -167,7 +191,8 @@ public enum Msg
     UpdateExtractionSource,
     UpdateExtractionPattern,
     UpdateExtractionDestination,
-    UpdateDeleteColumnColumn
+    UpdateDeleteColumnColumn,
+    UpdateExportProcessFile,
 }
 
 /// <summary>
@@ -202,16 +227,19 @@ public class ExampleWindow : Window
         switch (msg.Type)
         {
             case Msg.AddImportProcess:
-                model.Steps = [.. model.Steps, new ImportProcess() { Title = $"Import" }];
+                model.Steps = [.. model.Steps, new ImportProcess() { Title = $"Import", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.AddExtractionProcess:
-                model.Steps = [.. model.Steps, new ExtractionProcess() { Title = $"Extraction" }];
+                model.Steps = [.. model.Steps, new ExtractionProcess() { Title = $"Extraction", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.AddDeletionProcess:
-                model.Steps = [.. model.Steps, new DeleteColumnProcess() { Title = $"Delete Column" }];
+                model.Steps = [.. model.Steps, new DeleteColumnProcess() { Title = $"Delete Column", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.AddColumnProcess:
-                model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"Add Column" }];
+                model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"Add Column", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
+                break;
+            case Msg.AddExportProcess:
+                model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"Export", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.SelectStep:
                 if (msg.Index.HasValue)
@@ -219,7 +247,7 @@ public class ExampleWindow : Window
                 break;
             case Msg.UpdatePreview:
                 if (model.ActiveStepIndex >= 0)
-                    model.Steps[model.ActiveStepIndex].Execute(model.ActiveStepIndex > 0 ? model.Steps[model.ActiveStepIndex - 1].Preview : null);
+                    model.Steps[model.ActiveStepIndex].Execute(model.ActiveStepIndex > 0 ?  model.Steps[model.Steps[model.ActiveStepIndex].PreviousStepIndex].Preview : null);
                 break;
             case Msg.UpdateProcessTitle:
                 if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
@@ -248,6 +276,10 @@ public class ExampleWindow : Window
             case Msg.UpdateDeleteColumnColumn:
                 if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
                     ((DeleteColumnProcess)model.Steps[model.ActiveStepIndex]).DeletionField = msg.NewValue;
+                break;
+            case Msg.UpdateExportProcessFile:
+                if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
+                    ((ExportProcess)model.Steps[model.ActiveStepIndex]).File = msg.NewValue;
                 break;
         }
         return model;
@@ -306,23 +338,24 @@ public class ExampleWindow : Window
             switch (category)
             {
                 case 0:
-                    model.Steps = [.. model.Steps, new ImportProcess() { Title = categories[category] }];
+                    Dispatch(new ProcessMessage(Msg.AddImportProcess));
                     break;
                 case 2:
                 case 3:
+                    Dispatch(new ProcessMessage(Msg.AddExportProcess));
                     break;
                 case 1:
                     var transformation = ShowMessageBox("Select Transformation Step Type", "Select the type of transformation you would like to add", transformations);
                     switch (transformation)
                     {
                         case 0:
-                            model.Steps = [.. model.Steps, new ExtractionProcess() { Title = $"{categories[category]} - {transformations[transformation]}" }];
+                            Dispatch(new ProcessMessage(Msg.AddExtractionProcess));
                             break;
                         case 1:
-                            model.Steps = [.. model.Steps, new DeleteColumnProcess() { Title = $"{categories[category]} - {transformations[transformation]}" }];
+                            Dispatch(new ProcessMessage(Msg.AddDeletionProcess));
                             break;
                         case 2:
-                            model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"{categories[category]} - {transformations[transformation]}" }];
+                            Dispatch(new ProcessMessage(Msg.AddColumnProcess));
                             break;
                         default:
                             break;
@@ -350,6 +383,7 @@ public class ExampleWindow : Window
             { typeof(ExtractionProcess), p => AddExtractionDetails((ExtractionProcess)p) },
             { typeof(DeleteColumnProcess), p => AddDeletionDetails((DeleteColumnProcess)p) },
             { typeof(AddColumnProcess), p => AddColumnDetails((AddColumnProcess)p) },
+            { typeof(ExportProcess), p => AddExportDetails((ExportProcess)p) },
         };
 
         if (model.Steps.IsInBounds(model.ActiveStepIndex))
@@ -390,39 +424,52 @@ public class ExampleWindow : Window
 
     private void AddImportDetails(ImportProcess process)
     {
-        detailsFrame.Height = 7;
+        detailsFrame.Height = 9;
 
         AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
-        AddLabeledTextField("File", process.File, value => Dispatch(new ProcessMessage(Msg.UpdateImportProcessFile, NewValue: value)), 3);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("File", process.File, value => Dispatch(new ProcessMessage(Msg.UpdateImportProcessFile, NewValue: value)), 5);
+    }
+
+    private void AddExportDetails(ExportProcess process)
+    {
+        detailsFrame.Height = 9;
+
+        AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("File", process.File, value => Dispatch(new ProcessMessage(Msg.UpdateExportProcessFile, NewValue: value)), 5);
     }
 
     private void AddExtractionDetails(ExtractionProcess process)
     {
-        detailsFrame.Height = 11;
+        detailsFrame.Height = 13;
 
         AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
-        AddLabeledTextField("Source", process.SourceField, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionSource, NewValue: value)), 3);
-        AddLabeledTextField("Pattern", process.ExtractionPattern, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionPattern, NewValue: value)), 5);
-        AddLabeledTextField("Destination", process.DestinationField, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionDestination, NewValue: value)), 7);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("Source", process.SourceField, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionSource, NewValue: value)), 5);
+        AddLabeledTextField("Pattern", process.ExtractionPattern, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionPattern, NewValue: value)), 7);
+        AddLabeledTextField("Destination", process.DestinationField, value => Dispatch(new ProcessMessage(Msg.UpdateExtractionDestination, NewValue: value)), 9);
     }
 
     private void AddDeletionDetails(DeleteColumnProcess process)
     {
-        detailsFrame.Height = 7;
+        detailsFrame.Height = 9;
 
         AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
-        AddLabeledTextField("Column", process.DeletionField, value => Dispatch(new ProcessMessage(Msg.UpdateDeleteColumnColumn, NewValue: value)), 3);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("Column", process.DeletionField, value => Dispatch(new ProcessMessage(Msg.UpdateDeleteColumnColumn, NewValue: value)), 5);
     }
 
     private void AddColumnDetails(AddColumnProcess process)
     {
-        detailsFrame.Height = 7;
+        detailsFrame.Height = 9;
 
         AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
-        AddLabeledTextField("Column", process.NewColumn, value => Dispatch(new ProcessMessage(Msg.UpdateAddColumnsNewColumn, NewValue: value)), 3);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("Column", process.NewColumn, value => Dispatch(new ProcessMessage(Msg.UpdateAddColumnsNewColumn, NewValue: value)), 5);
     }
 
-    private TextField AddLabeledTextField(string label, string initialValue, Action<string> onChanged, int yOffset)
+    private void AddLabeledTextField(string label, string initialValue, Action<string> onChanged, int yOffset)
     {
         var lbl = new Label(label) { X = 1, Y = yOffset, Width = 15 };
         detailsFrame.Add(lbl);
@@ -430,8 +477,22 @@ public class ExampleWindow : Window
         var txtField = new TextField(initialValue) { X = Pos.Right(lbl) + 1, Y = yOffset, Width = Dim.Fill() - 1, TextAlignment = TextAlignment.Right };
         txtField.TextChanged += (text) => { onChanged(txtField.Text.ToString()); };
         detailsFrame.Add(txtField);
+    }
 
-        return txtField;
+    private void AddLabeledDataField(string label, string initialValue, int yOffset)
+    {
+        var lbl = new Label(label) { X = 1, Y = yOffset, Width = 15 };
+        detailsFrame.Add(lbl);
+
+        var txtField = new TextField(initialValue)
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = yOffset,
+            Width = Dim.Fill() - 1,
+            TextAlignment = TextAlignment.Right,
+            Enabled = false
+        };
+        detailsFrame.Add(txtField);
     }
 }
 
