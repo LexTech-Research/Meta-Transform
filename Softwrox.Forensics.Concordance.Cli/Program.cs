@@ -5,6 +5,7 @@ using NStack;
 using System.CommandLine.NamingConventionBinder;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Xml;
 
 // Meeting Location pattern: Location\s+:\s(.+?)®
 
@@ -41,12 +42,13 @@ public abstract class Process
 /// </summary>
 public class ImportProcess : Process
 {
-    public ImportProcess(string file = "")
-    {
-        this.File = file;
-    }
+    private string? file;
 
-    public string File { get; set; }
+    public string File
+    {
+        get => file ??= string.Empty;
+        set => file = value;
+    }
 
     public override void Execute(DataTable? input)
     {
@@ -65,13 +67,19 @@ public class ImportProcess : Process
 /// </summary>
 public class ExportProcess : Process
 {
-    public string File { get; set; }
+    private string? file;
+
+    public string File
+    {
+        get => file ??= string.Empty;
+        set => file = value;
+    }
 
     public override void Execute(DataTable? input = null)
     {
-        if (System.IO.File.Exists(this.File) || input == null)
+        if (System.IO.File.Exists(this.File) || input == null || !this.File.EndsWith(".dat"))
         {
-            return;    
+            return;
         }
 
         this.Preview = input.Copy();
@@ -102,6 +110,31 @@ public class AddColumnProcess : Process
 
         this.Preview = input.Copy();
         this.Preview.Columns.Add(this.NewColumn);
+    }
+}
+
+public class FilterNotBlankColumnProcess : Process
+{
+    private string? column;
+
+    public string Column
+    {
+        get => column ??= string.Empty;
+        set => column = value;
+    }
+    public override void Execute(DataTable? input = null)
+    {
+        if (input == null || this.Column == string.Empty || !input.Columns.Contains(Column))
+        {
+            this.Preview = new DataTable();
+            return;
+        }
+
+        this.Preview = input.Copy();
+        foreach (var row in this.Preview.Select($"[{this.Column}] <> '' AND [{this.Column}] IS NOT NULL"))
+        {
+            this.Preview.Rows.Remove(row);
+        }
     }
 }
 
@@ -183,6 +216,7 @@ public enum Msg
     AddDeletionProcess,
     AddColumnProcess,
     AddExportProcess,
+    AddFilterNotBlankColumnProcess,
     SelectStep,
     UpdatePreview,
     UpdateProcessTitle,
@@ -193,6 +227,7 @@ public enum Msg
     UpdateExtractionDestination,
     UpdateDeleteColumnColumn,
     UpdateExportProcessFile,
+    UpdateFilterNotBlankColumnColumn,
 }
 
 /// <summary>
@@ -239,7 +274,10 @@ public class ExampleWindow : Window
                 model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"Add Column", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.AddExportProcess:
-                model.Steps = [.. model.Steps, new AddColumnProcess() { Title = $"Export", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
+                model.Steps = [.. model.Steps, new ExportProcess() { Title = $"Export", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
+                break;
+            case Msg.AddFilterNotBlankColumnProcess:
+                model.Steps = [.. model.Steps, new FilterNotBlankColumnProcess() { Title = $"Filter", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
             case Msg.SelectStep:
                 if (msg.Index.HasValue)
@@ -281,6 +319,10 @@ public class ExampleWindow : Window
                 if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
                     ((ExportProcess)model.Steps[model.ActiveStepIndex]).File = msg.NewValue;
                 break;
+            case Msg.UpdateFilterNotBlankColumnColumn:
+                if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
+                    ((FilterNotBlankColumnProcess)model.Steps[model.ActiveStepIndex]).Column = msg.NewValue;
+                break;
         }
         return model;
     }
@@ -300,9 +342,7 @@ public class ExampleWindow : Window
         if (!previewFrame.HasFocus)
         {
             UpdatePreview();
-            //UpdatePreviewFrame();
         }
-
     }
 
     private int ShowMessageBox(string title, string message, params string[] options)
@@ -320,7 +360,7 @@ public class ExampleWindow : Window
         stepsList.SelectedItemChanged += (args) => { Dispatch(new ProcessMessage(Msg.SelectStep, args.Item)); };
 
         var categories = new string[] { "Import", "Transformation", "Report", "Export" };
-        var transformations = new string[] { "Extraction", "Deletion", "Add" };
+        var transformations = new string[] { "Extraction", "Deletion", "Add", "Filter" };
 
         var add = new Button("Add Step")
         {
@@ -340,10 +380,6 @@ public class ExampleWindow : Window
                 case 0:
                     Dispatch(new ProcessMessage(Msg.AddImportProcess));
                     break;
-                case 2:
-                case 3:
-                    Dispatch(new ProcessMessage(Msg.AddExportProcess));
-                    break;
                 case 1:
                     var transformation = ShowMessageBox("Select Transformation Step Type", "Select the type of transformation you would like to add", transformations);
                     switch (transformation)
@@ -357,9 +393,16 @@ public class ExampleWindow : Window
                         case 2:
                             Dispatch(new ProcessMessage(Msg.AddColumnProcess));
                             break;
+                        case 3:
+                            Dispatch(new ProcessMessage(Msg.AddFilterNotBlankColumnProcess));
+                            break;
                         default:
                             break;
                     }
+                    break;
+                case 2:
+                case 3:
+                    Dispatch(new ProcessMessage(Msg.AddExportProcess));
                     break;
                 default:
                     break;
@@ -384,6 +427,7 @@ public class ExampleWindow : Window
             { typeof(DeleteColumnProcess), p => AddDeletionDetails((DeleteColumnProcess)p) },
             { typeof(AddColumnProcess), p => AddColumnDetails((AddColumnProcess)p) },
             { typeof(ExportProcess), p => AddExportDetails((ExportProcess)p) },
+            { typeof(FilterNotBlankColumnProcess), p => FilterNotBlankColumnDetails((FilterNotBlankColumnProcess)p)}
         };
 
         if (model.Steps.IsInBounds(model.ActiveStepIndex))
@@ -469,6 +513,15 @@ public class ExampleWindow : Window
         AddLabeledTextField("Column", process.NewColumn, value => Dispatch(new ProcessMessage(Msg.UpdateAddColumnsNewColumn, NewValue: value)), 5);
     }
 
+    private void FilterNotBlankColumnDetails(FilterNotBlankColumnProcess process)
+    {
+        detailsFrame.Height = 9;
+
+        AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("Column", process.Column, value => Dispatch(new ProcessMessage(Msg.UpdateFilterNotBlankColumnColumn, NewValue: value)), 5);
+    }
+
     private void AddLabeledTextField(string label, string initialValue, Action<string> onChanged, int yOffset)
     {
         var lbl = new Label(label) { X = 1, Y = yOffset, Width = 15 };
@@ -517,95 +570,4 @@ class Program
         Application.Run<ExampleWindow>();
         Application.Shutdown();
     }
-
-    /// <break>
-
-    // static void Main(string[] args)
-    // {
-    //     var rootCommand = CreateRootCommand();
-    //     rootCommand.InvokeAsync(args);
-    // }
-
-    // private static RootCommand CreateRootCommand()
-    // {
-    //     var rootCommand = new RootCommand
-    //     {
-    //         new Option<FileInfo>("--file","Select a file"){ IsRequired = true }
-    //     };
-
-    //     rootCommand.Handler = CommandHandler.Create<FileInfo>((file) => ProcessFile(file));
-    //     return rootCommand;
-    // }
-
-    // private static void ProcessFile(FileInfo file)
-    // {
-    //     var data = ReadConcordanceFile(file);
-
-    //     ExtractDataIntoNewColumn(data);
-
-    //     StartApplication(data, file);
-    // }
-
-    // private static DataTable ReadConcordanceFile(FileInfo file)
-    // {
-    //     return ConcordanceFileReader.Read(file.FullName);
-    // }
-
-    // private static void ExtractDataIntoNewColumn(DataTable data)
-    // {
-    //     data.ExtractIntoNewColumn(
-    //         fromColumn: "Extracted Text",
-    //         pattern: @"Location\s+:\s(.+?)®",
-    //         toColumn: "Meeting Location",
-    //         replaceOriginal: true
-    //     );
-    // }
-
-    // private static void StartApplication(DataTable data, FileInfo file)
-    // {
-    //     Application.Init();
-
-    //     var menu = CreateMenu(data, file);
-    //     var table = CreateTable(data);
-
-    //     Application.Top.Add(menu, table);
-
-    //     Application.Run();
-    //     Application.Shutdown();
-    // }
-
-    // private static MenuBar CreateMenu(DataTable data, FileInfo file)
-    // {
-    //     return new MenuBar(new MenuBarItem[]
-    //     {
-    //         new MenuBarItem("_File", new MenuItem[]
-    //         {
-    //             new MenuItem("_Save", "", () => SaveFile(data, file)),
-    //             new MenuItem("_Quit", "", () => Application.RequestStop()),
-    //             new MenuItem("_Open", "", () => OpenFile())
-    //         }),
-    //     });
-    // }
-
-    // private static TableView CreateTable(DataTable data)
-    // {
-    //     return new TableView
-    //     {
-    //         X = Pos.Left(Application.Top),
-    //         Y = Pos.Top(Application.Top) + 1,
-    //         Width = Dim.Fill(),
-    //         Height = Dim.Fill(),
-    //         Table = data
-    //     };
-    // }
-
-    // private static void SaveFile(DataTable data, FileInfo file)
-    // {
-    //     var outputPath = Path.Combine(file.Directory.FullName, "result.dat");
-    //     ConcordanceFileWriter.Write(data, outputPath);
-    // }
-
-    // private static void OpenFile() {
-
-    // }
 }
