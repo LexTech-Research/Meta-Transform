@@ -1,0 +1,27 @@
+{
+  "$type": "AppModel, Softwrox.Forensics.Concordance.Cli",
+  "Steps": {
+    "$type": "Process[], Softwrox.Forensics.Concordance.Cli",
+    "$values": [
+      {
+        "$type": "ImportProcess, Softwrox.Forensics.Concordance.Cli",
+        "File": "./SavedSearch_2168833_export.dat",
+        "PreviousStepIndex": -1,
+        "Title": "Import"
+      },
+      {
+        "$type": "FilterNotBlankColumnProcess, Softwrox.Forensics.Concordance.Cli",
+        "Column": "Meeting Location",
+        "PreviousStepIndex": 0,
+        "Title": "Filter"
+      },
+      {
+        "$type": "DeleteColumnProcess, Softwrox.Forensics.Concordance.Cli",
+        "DeletionField": "Extracted Text",
+        "PreviousStepIndex": 1,
+        "Title": "Delete Column"
+      }
+    ]
+  },
+  "ActiveStepIndex": 0
+}

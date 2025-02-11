@@ -6,6 +6,9 @@ using System.CommandLine.NamingConventionBinder;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Xml;
+using System.Text.Json.Serialization;
+using System.Text.Json;
+using Newtonsoft.Json;
 
 // Meeting Location pattern: Location\s+:\s(.+?)®
 
@@ -19,6 +22,7 @@ public abstract class Process
 {
     private DataTable? preview;
 
+    [Newtonsoft.Json.JsonIgnore]
     public DataTable Preview
     {
         get => preview ??= new DataTable();
@@ -113,6 +117,9 @@ public class AddColumnProcess : Process
     }
 }
 
+/// <summary>
+/// TODO: Add Documentation
+/// </summary>
 public class FilterNotBlankColumnProcess : Process
 {
     private string? column;
@@ -227,7 +234,7 @@ public enum Msg
     UpdateExtractionDestination,
     UpdateDeleteColumnColumn,
     UpdateExportProcessFile,
-    UpdateFilterNotBlankColumnColumn,
+    UpdateFilterNotBlankColumnColumn
 }
 
 /// <summary>
@@ -249,12 +256,72 @@ public class ExampleWindow : Window
         Title = $"Concordance File Processing ({Application.QuitKey} to quit)";
         Border.BorderStyle = BorderStyle.None;
 
-        stepsFrame = new FrameView("Process Steps") { X = 0, Y = 0, Width = Dim.Percent(30), Height = Dim.Fill() };
-        detailsFrame = new FrameView("Step Details") { X = Pos.Right(stepsFrame), Y = 0, Width = Dim.Fill(), Height = Dim.Percent(50) };
+        var menu = new MenuBar(new MenuBarItem[]
+        {
+            new MenuBarItem("_File", new MenuItem[]
+            {
+                new MenuItem("_Load", "Load a saved process", () => LoadProcessUI()),
+                new MenuItem("_Save", "Save the current process", () => SaveProcessUI()),
+                new MenuItem("_Quit", "Exit the application", () => Application.RequestStop())
+            })
+        });
+
+        stepsFrame = new FrameView("Process Steps") { X = 0, Y = 1, Width = Dim.Percent(30), Height = Dim.Fill() };
+        detailsFrame = new FrameView("Step Details") { X = Pos.Right(stepsFrame), Y = 1, Width = Dim.Fill(), Height = Dim.Percent(50) };
         previewFrame = new FrameView("Step Preview") { X = Pos.Right(stepsFrame), Y = Pos.Bottom(detailsFrame), Width = Dim.Fill(), Height = Dim.Fill() };
 
-        Add(stepsFrame, detailsFrame, previewFrame);
+        Add(menu, stepsFrame, detailsFrame, previewFrame);
         Render();
+    }
+
+        private void LoadProcessUI()
+    {
+        var dialog = new OpenDialog("Load Process", "Choose a JSON file");
+        dialog.AllowedFileTypes = [".json"];
+
+        Application.Run(dialog);
+
+        if (!dialog.Canceled && dialog.FilePaths.Count > 0)
+        {
+            model = LoadProcess(dialog.FilePaths[0]);
+            Render();
+        }
+    }
+
+    private void SaveProcessUI()
+    {
+        var dialog = new SaveDialog("Save Process", "Save as JSON file");
+
+        Application.Run(dialog);
+
+        if (!dialog.Canceled && !string.IsNullOrWhiteSpace((string?)dialog.FilePath))
+        {
+            SaveProcess(model, (string)dialog.FileName);
+        }
+    }
+
+    public static void SaveProcess(AppModel model, string filePath)
+    {
+        var settings = new JsonSerializerSettings 
+        { 
+            Formatting = Newtonsoft.Json.Formatting.Indented, 
+            TypeNameHandling = TypeNameHandling.All 
+        };
+        string json = JsonConvert.SerializeObject(model, settings);
+        File.WriteAllText(filePath, json);
+    }
+
+    public static AppModel LoadProcess(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return new AppModel();
+
+        var settings = new JsonSerializerSettings 
+        { 
+            TypeNameHandling = TypeNameHandling.All 
+        };
+        string json = File.ReadAllText(filePath);
+        return JsonConvert.DeserializeObject<AppModel>(json,settings) ?? new AppModel();
     }
 
     public static AppModel Update(AppModel model, ProcessMessage msg)
@@ -570,4 +637,6 @@ class Program
         Application.Run<ExampleWindow>();
         Application.Shutdown();
     }
+
+
 }
