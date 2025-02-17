@@ -9,6 +9,8 @@ using System.Xml;
 using System.Text.Json.Serialization;
 using System.Text.Json;
 using Newtonsoft.Json;
+using System.Runtime.ExceptionServices;
+using Microsoft.VisualBasic;
 
 // Meeting Location pattern: Location\s+:\s(.+?)®
 
@@ -112,8 +114,7 @@ public class AddColumnProcess : Process
             return;
         }
 
-        this.Preview = input.Copy();
-        this.Preview.Columns.Add(this.NewColumn);
+        this.Preview = input.AddColumn(this.NewColumn);
     }
 }
 
@@ -137,10 +138,21 @@ public class FilterNotBlankColumnProcess : Process
             return;
         }
 
-        this.Preview = input.Copy();
-        foreach (var row in this.Preview.Select($"[{this.Column}] <> '' AND [{this.Column}] IS NOT NULL"))
+        this.Preview = input.DeleteRows($"[{this.Column}] <> '' AND [{this.Column}] IS NOT NULL");
+    }
+}
+
+public class SplitProcess : Process
+{
+    public int Records { get; set; }                
+
+    public override void Execute(DataTable? input = null)
+    {
+        if (input == null || this.Records != 0)
         {
-            this.Preview.Rows.Remove(row);
+            this.Preview = input.Clone();
+            for (var i = 0; i < this.Records; i++)
+                this.Preview.ImportRow(input.Rows[i]);
         }
     }
 }
@@ -224,6 +236,7 @@ public enum Msg
     AddColumnProcess,
     AddExportProcess,
     AddFilterNotBlankColumnProcess,
+    AddSplitProcess,
     SelectStep,
     UpdatePreview,
     UpdateProcessTitle,
@@ -234,7 +247,8 @@ public enum Msg
     UpdateExtractionDestination,
     UpdateDeleteColumnColumn,
     UpdateExportProcessFile,
-    UpdateFilterNotBlankColumnColumn
+    UpdateFilterNotBlankColumnColumn,
+    UpdateSplitProcessRecords
 }
 
 /// <summary>
@@ -253,7 +267,7 @@ public class ExampleWindow : Window
     public ExampleWindow()
     {
 
-        Title = $"Concordance File Processing ({Application.QuitKey} to quit)";
+        //Title = $"Concordance File Processing ({Application.QuitKey} to quit)";
         Border.BorderStyle = BorderStyle.None;
 
         var menu = new MenuBar(new MenuBarItem[]
@@ -274,7 +288,7 @@ public class ExampleWindow : Window
         Render();
     }
 
-        private void LoadProcessUI()
+    private void LoadProcessUI()
     {
         var dialog = new OpenDialog("Load Process", "Choose a JSON file");
         dialog.AllowedFileTypes = [".json"];
@@ -346,6 +360,9 @@ public class ExampleWindow : Window
             case Msg.AddFilterNotBlankColumnProcess:
                 model.Steps = [.. model.Steps, new FilterNotBlankColumnProcess() { Title = $"Filter", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
                 break;
+            case Msg.AddSplitProcess:
+                model.Steps = [.. model.Steps, new SplitProcess() { Title = $"Split", PreviousStepIndex = model.Steps.GetUpperBound(0) }];
+                break;
             case Msg.SelectStep:
                 if (msg.Index.HasValue)
                     model.ActiveStepIndex = msg.Index.Value;
@@ -390,6 +407,11 @@ public class ExampleWindow : Window
                 if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null)
                     ((FilterNotBlankColumnProcess)model.Steps[model.ActiveStepIndex]).Column = msg.NewValue;
                 break;
+            case Msg.UpdateSplitProcessRecords:
+                var records = 0;
+                if (model.Steps.IsInBounds(model.ActiveStepIndex) && msg.NewValue != null && Int32.TryParse(msg.NewValue,out records))
+                    ((SplitProcess)model.Steps[model.ActiveStepIndex]).Records = records;
+                break;
         }
         return model;
     }
@@ -427,7 +449,7 @@ public class ExampleWindow : Window
         stepsList.SelectedItemChanged += (args) => { Dispatch(new ProcessMessage(Msg.SelectStep, args.Item)); };
 
         var categories = new string[] { "Import", "Transformation", "Report", "Export" };
-        var transformations = new string[] { "Extraction", "Deletion", "Add", "Filter" };
+        var transformations = new string[] { "Extraction", "Deletion", "Add", "Filter", "Split" };
 
         var add = new Button("Add Step")
         {
@@ -463,6 +485,9 @@ public class ExampleWindow : Window
                         case 3:
                             Dispatch(new ProcessMessage(Msg.AddFilterNotBlankColumnProcess));
                             break;
+                        case 4:
+                            Dispatch(new ProcessMessage(Msg.AddSplitProcess));
+                            break;
                         default:
                             break;
                     }
@@ -494,7 +519,8 @@ public class ExampleWindow : Window
             { typeof(DeleteColumnProcess), p => AddDeletionDetails((DeleteColumnProcess)p) },
             { typeof(AddColumnProcess), p => AddColumnDetails((AddColumnProcess)p) },
             { typeof(ExportProcess), p => AddExportDetails((ExportProcess)p) },
-            { typeof(FilterNotBlankColumnProcess), p => FilterNotBlankColumnDetails((FilterNotBlankColumnProcess)p)}
+            { typeof(FilterNotBlankColumnProcess), p => FilterNotBlankColumnDetails((FilterNotBlankColumnProcess)p)},
+            { typeof(SplitProcess), p => SplitProcessDetails((SplitProcess)p)}
         };
 
         if (model.Steps.IsInBounds(model.ActiveStepIndex))
@@ -587,6 +613,15 @@ public class ExampleWindow : Window
         AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
         AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
         AddLabeledTextField("Column", process.Column, value => Dispatch(new ProcessMessage(Msg.UpdateFilterNotBlankColumnColumn, NewValue: value)), 5);
+    }
+
+    private void SplitProcessDetails(SplitProcess process)
+    {
+        detailsFrame.Height = 9;
+
+        AddLabeledTextField("Title", process.Title, value => Dispatch(new ProcessMessage(Msg.UpdateProcessTitle, NewValue: value)), 1);
+        AddLabeledDataField("Previous Step", process.PreviousStepIndex.ToString(), 3);
+        AddLabeledTextField("Records", process.Records.ToString(), value => Dispatch(new ProcessMessage(Msg.UpdateSplitProcessRecords, NewValue: value)), 5);
     }
 
     private void AddLabeledTextField(string label, string initialValue, Action<string> onChanged, int yOffset)
